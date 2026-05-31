@@ -1,0 +1,943 @@
+---
+output:
+  pdf_document:
+    toc: false
+    number_sections: true
+    latex_engine: xelatex
+fontsize: 12pt
+header-includes:
+  - \usepackage{float}
+  - \floatplacement{figure}{H}
+bibliography: /export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/references.bib
+csl: vancouver.csl
+---
+
+\begin{titlepage}
+
+% Logos en las esquinas superiores
+\begin{minipage}[t]{0.45\textwidth}
+    \raggedright
+    \includegraphics[width=0.5\textwidth]{/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/logo_unam.jpg}
+\end{minipage}
+\begin{minipage}[t]{0.45\textwidth}
+    \raggedleft
+    \includegraphics[width=0.3\textwidth]{/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/logo_lcg.jpeg}
+\end{minipage}
+
+\vspace{2cm}
+\centering
+
+{\Large Universidad Nacional Autónoma de México}
+
+\vspace{0.5cm}
+
+{\large Licenciatura en Ciencias Genómicas}
+
+\vspace{2cm}
+
+{\Huge \textbf{Proyecto Final}}
+
+\vspace{0.5cm}
+
+{\Large Transcriptomic Analysis of Murine Liver Under Microgravity Conditions Using RNA-seq}
+
+\vspace{2cm}
+
+{\large Zyanya Valentina Velazquez Aldrete}
+
+\vfill
+
+{\large \today}
+
+\end{titlepage}
+
+\newpage
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# Librerías estadísticas básicas
+library(DESeq2)
+library(edgeR)
+library(limma)
+
+# Librerías de manipulación de datos
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(stringr)
+
+# Librerías de visualización y Páneles (Aquí están las nuevas)
+library(ggplot2)
+library(patchwork)
+library(pheatmap)
+library(gridExtra)
+library(VennDiagram)
+library(grid)
+library(RColorBrewer)
+
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+```
+
+
+# Introducción
+
+La exposición prolongada a condiciones de microgravedad representa uno de los principales desafíos fisiológicos asociados a los vuelos espaciales de larga duración. Diversos estudios han demostrado que los cambios gravitacionales alteran procesos relacionados con metabolismo energético, respuesta inmune, estrés oxidativo y homeostasis celular en múltiples tejidos [@blaber2017; @vinken2022]. Entre estos órganos, el hígado constituye un tejido particularmente relevante debido a su papel central en metabolismo, detoxificación y regulación sistémica. 
+
+Estudios transcriptómicos previos han reportado que la microgravedad induce modificaciones importantes en rutas metabólicas hepáticas, incluyendo procesos asociados a autofagia, degradación proteica y metabolismo de compuestos azufrados [@blaber2017; @kurosawa2021]. Adicionalmente, se ha observado que la implementación de sistemas de gravedad artificial puede mitigar parcialmente algunos de los efectos fisiológicos inducidos por condiciones espaciales [@mhatre2022].
+
+En este proyecto se analizaron datos de RNA-seq obtenidos del estudio *Impact of spaceflight and artificial gravity on sulfur metabolism in mouse liver: sulfur metabolomic and transcriptomic analysis* realizado por Kurosawa y colaboradores [@kurosawa2021]. Dicho estudio evaluó el impacto de la microgravedad y de la gravedad artificial sobre el metabolismo hepático de ratón utilizando transcriptómica y metabolómica. 
+
+Los datos utilizados corresponden al BioProject PRJNA1005192 disponible en el repositorio Sequence Read Archive (SRA) del NCBI. Se analizaron nueve transcriptomas de hígado murino (*Mus musculus*, strain C57BL/6J) distribuidos en tres condiciones experimentales: Ground Control (GC), correspondiente a ratones mantenidos en Tierra; Artificial Earth-gravity (A1G), ratones expuestos al ambiente espacial bajo gravedad artificial de 1g; y Microgravity (MG), ratones mantenidos bajo condiciones de microgravedad real. Cada condición incluyó tres réplicas biológicas y las bibliotecas fueron secuenciadas mediante Illumina NovaSeq 6000 utilizando RNA enriquecido por Poly(A) [@kurosawa2021].
+
+El objetivo principal de este proyecto fue identificar genes diferencialmente expresados asociados a condiciones de microgravedad en hígado murino y evaluar los cambios transcriptómicos inducidos por la exposición espacial. Adicionalmente, se buscó comparar los efectos de microgravedad frente a gravedad artificial y evaluar si la corrección de *batch effect* mejoraba la separación biológica observada entre grupos experimentales en análisis de componentes principales.
+
+# Procedimiento
+
+## Métodos
+
+### Descripción de los datos
+
+Los transcriptomas analizados en este proyecto fueron obtenidos del BioProject PRJNA1005192 del NCBI correspondiente al estudio de Kurosawa et al. [@kurosawa2021].
+
+La Tabla 1 resume las características generales del dataset utilizado en este proyecto.
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+tabla_info <- data.frame(
+  Caracteristica = c(
+    "BioProject",
+    "Especie",
+    "Tejido analizado",
+    "Tipo de secuenciación",
+    "Método de enriquecimiento",
+    "Plataforma de secuenciación",
+    "Número total de muestras",
+    "Número de condiciones",
+    "Réplicas biológicas por grupo"
+  ),
+
+  Informacion = c(
+    "PRJNA1005192",
+    "Mus musculus",
+    "Hígado",
+    "RNA-seq paired-end",
+    "Poly(A) RNA selection",
+    "Illumina NovaSeq 6000",
+    "9",
+    "3",
+    "3"
+  )
+)
+
+kable(
+  tabla_info,
+  caption = "Características generales del dataset utilizado.",
+  align = c("l", "l"),
+  booktabs = TRUE
+) %>%
+  kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 10
+  )
+```
+
+Posteriormente, se seleccionaron las nueve muestras correspondientes a las tres condiciones experimentales evaluadas en el estudio original. La distribución de las muestras y sus identificadores se presenta en la Tabla 2.
+
+```{r}
+tabla_muestras <- data.frame(
+  Condicion = c(
+    "GC", "GC", "GC",
+    "A1G", "A1G", "A1G",
+    "MG", "MG", "MG"
+  ),
+
+  Descripcion = c(
+    "Ground Control",
+    "Ground Control",
+    "Ground Control",
+
+    "Artificial Earth-gravity",
+    "Artificial Earth-gravity",
+    "Artificial Earth-gravity",
+
+    "Microgravity",
+    "Microgravity",
+    "Microgravity"
+  ),
+
+  BioSample = c(
+    "SAMN36978221",
+    "SAMN36978220",
+    "SAMN36978219",
+
+    "SAMN36978218",
+    "SAMN36978217",
+    "SAMN36978216",
+
+    "SAMN36978215",
+    "SAMN36978214",
+    "SAMN36978213"
+  ),
+
+  SRR = c(
+    "SRR25629473",
+    "SRR25629472",
+    "SRR25629471",
+
+    "SRR25629470",
+    "SRR25629469",
+    "SRR25629468",
+
+    "SRR25629467",
+    "SRR25629466",
+    "SRR25629465"
+  )
+)
+
+kable(
+  tabla_muestras,
+  caption = "Distribución de muestras y condiciones experimentales.",
+  align = "c",
+  booktabs = TRUE
+) %>%
+  kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 9
+  )
+```
+
+### Otención de lecturas RNA-seq
+
+Las lecturas de RNA-seq fueron obtenidas del repositorio público European Nucleotide Archive (ENA), correspondiente al BioProject PRJNA1005192. Se seleccionaron nueve muestras de hígado murino distribuidas en tres condiciones experimentales: Ground Control (GC), Artificial Earth Gravity (A1G) y Microgravity (MG).
+
+Los archivos FASTQ pareados fueron descargados directamente desde los servidores FTP del ENA utilizando la herramienta wget. Para optimizar el tiempo de transferencia se implementó paralelización mediante xargs, permitiendo la descarga simultánea de múltiples archivos. Asimismo, se utilizó la opción -c de wget para reanudar descargas interrumpidas y evitar pérdidas de progreso en caso de desconexión.
+
+En total se descargaron 18 archivos FASTQ comprimidos (dos archivos por muestra correspondientes a las lecturas forward y reverse).
+
+```bash
+wget -c ftp://ftp.sra.ebi.ac.uk/.../SRR25629465_1.fastq.gz
+wget -c ftp://ftp.sra.ebi.ac.uk/.../SRR25629465_2.fastq.gz
+```
+
+Para automatizar el proceso se implementó un script que descargó todas las muestras utilizando ejecución paralela:
+
+```bash
+printf '%s\n' "${URLS[@]}" |
+xargs -P 2 -I {} bash -c 'download "$@"' _ {}
+```
+
+Se eligió ENA debido a que proporciona acceso directo a los archivos FASTQ originales sin necesidad de realizar conversiones adicionales desde formato SRA. La descarga paralela permitió reducir el tiempo total de transferencia manteniendo un consumo moderado de recursos computacionales.
+
+### Control de calidad
+
+La calidad de las lecturas de RNA-seq fue evaluada antes y después del preprocesamiento utilizando FastQC. Con el objetivo de obtener una evaluación global del conjunto de muestras, los reportes individuales fueron integrados mediante MultiQC.
+
+Las lecturas crudas fueron analizadas inicialmente con FastQC para identificar posibles problemas relacionados con calidad de bases, presencia de adaptadores, distribución de contenido GC, niveles de duplicación y secuencias sobre-representadas.
+
+Posteriormente, las lecturas fueron sometidas a filtrado y trimming utilizando fastp. Esta herramienta permitió eliminar secuencias adaptadoras residuales, recortar extremos de baja calidad y generar nuevas lecturas depuradas para los análisis posteriores.
+
+Tras el procesamiento, las lecturas limpias fueron evaluadas nuevamente con FastQC y los resultados fueron resumidos mediante MultiQC para verificar la efectividad del procedimiento de limpieza.
+
+El flujo completo fue implementado mediante Nextflow DSL2, permitiendo la ejecución reproducible y paralela de las etapas de control de calidad, filtrado y generación de reportes.
+
+Los reportes MultiQC obtenidos antes y después del filtrado fueron utilizados para comparar métricas de calidad y verificar la eliminación de adaptadores y otras posibles fuentes de sesgo técnico
+
+### Pipeline STAR + featureCounts
+
+El procesamiento principal de los datos se realizó mediante un pipeline basado en STAR seguido de cuantificación génica con featureCounts.
+
+Las lecturas depuradas mediante fastp fueron alineadas contra el genoma de referencia murino utilizando STAR en modo paired-end. STAR fue seleccionado debido a su elevada velocidad de procesamiento, capacidad para detectar uniones de empalme y amplio uso en estudios transcriptómicos.
+
+Durante el alineamiento se empleó el parámetro `--runThreadN` para paralelizar el análisis utilizando múltiples núcleos de procesamiento. Asimismo, se utilizó la opción `--quantMode GeneCounts`, permitiendo generar conteos génicos preliminares durante el alineamiento.
+
+Los archivos BAM resultantes fueron posteriormente utilizados como entrada para featureCounts. La cuantificación se realizó empleando la anotación GTF de GENCODE y considerando únicamente lecturas correctamente alineadas sobre regiones exónicas.
+
+La herramienta featureCounts asigna lecturas a genes basándose en coordenadas genómicas, generando una matriz de conteos compatible con análisis posteriores de expresión diferencial mediante DESeq2.
+
+Este pipeline fue considerado como la estrategia principal del proyecto debido a que mantiene información genómica completa y permite una trazabilidad directa entre lecturas alineadas y genes anotados.
+
+### Pipeline Salmon + tximport
+
+Como estrategia alternativa de cuantificación se implementó un segundo pipeline basado en Salmon, como en el articulo previamente descrito, para proceder a hacer un análisis comparativo.
+
+A diferencia de STAR, Salmon utiliza un enfoque de pseudoalineamiento transcriptómico que evita el alineamiento completo de las lecturas contra el genoma. Este método permite reducir significativamente los tiempos de procesamiento manteniendo una elevada precisión en la estimación de abundancias transcriptómicas.
+
+Las abundancias obtenidas a nivel de transcrito fueron posteriormente importadas a R mediante la librería tximport, la cual permite resumir la información transcriptómica a nivel génico para su utilización en DESeq2.
+
+Los resultados generados mediante Salmon fueron utilizados exclusivamente para fines comparativos y evaluación de concordancia con el pipeline principal basado en STAR.
+
+### Análisis exploratorio de datos (EDA)
+
+Previo al análisis de expresión diferencial, se realizó un análisis exploratorio con el objetivo de evaluar la estructura global de la expresión génica entre condiciones experimentales y detectar posibles sesgos técnicos. Se utilizó la transformación *variance stabilizing transformation* (VST) implementada en DESeq2 [5], la cual estabiliza la varianza en función de la media y permite hacer comparables las muestras a nivel global. Posteriormente, se generó un gráfico de componentes principales (PCA) usando las funciones `plotPCA` y `ggplot2` [6] para visualizar la separación entre los grupos GC, A1G y MG.
+
+### Análisis de expresión diferencial con DESeq2
+
+El análisis de expresión diferencial se realizó utilizando DESeq2 [@love2014] versión 1.38.3. Se partió de la matriz de conteos génicos obtenida con featureCounts a partir de los alineamientos de STAR. Se construyó un objeto `DESeqDataSet` especificando el diseño ~ condition, donde condition incluye los tres niveles: GC (control en Tierra), A1G (gravedad artificial 1g) y MG (microgravedad). Los genes con conteos totales menores a 10 en todas las muestras fueron filtrados previo al análisis para reducir el ruido estadístico. 
+
+Los contrastes de interés fueron: (1) MG vs GC para identificar genes afectados por microgravedad real, y (2) A1G vs GC para evaluar el efecto de la gravedad artificial. El ajuste para pruebas múltiples se realizó mediante el método de Benjamini-Hochberg (FDR), considerando como estadísticamente significativos aquellos genes con padj < 0.05 y |log2FC| ≥ 1.
+
+### Análisis de enriquecimiento funcional (GO, STRING y GSEA)
+
+Para garantizar la reproducibilidad del análisis funcional y dada la imposibilidad de instalar ciertos paquetes en el entorno de trabajo, se optó por utilizar tres plataformas de análisis en línea ampliamente validadas, documentando todos los parámetros y fechas de acceso, tal como se indica en la siguiente tabla.
+
+**Preparación de archivos de entrada**
+
+Se generaron los siguientes archivos a partir de los resultados de DESeq2:
+
+Lista de genes diferencialmente expresados: Archivos de texto con los símbolos de genes upregulated *(MG_vs_GC_UP_genes.txt)* y downregulated *(MG_vs_GC_DOWN_genes.txt)* para STRING y DAVID.
+
+Lista rankeada para GSEA: A partir del archivo MG_vs_GC.csv, se creó un archivo .rnk con dos columnas: *gene_name* y *log2FoldChange*, ordenadas de forma descendente. Este archivo se utilizó como entrada para el software GSEA.
+
+## Resultados
+
+### Control de calidad de las lecturas
+
+```{r fig.cap="Resumen MultiQC antes del filtrado", out.width="90%"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/figures/Multiqc_raw_adapter.png")
+```
+
+El análisis inicial mediante FastQC reveló la presencia de secuencias adaptadoras residuales en múltiples muestras, así como una disminución moderada de la calidad hacia los extremos 3' de las lecturas. Aunque los valores Phred permanecieron dentro de rangos aceptables para la mayoría de las posiciones, la presencia de adaptadores justificó la implementación de una etapa de limpieza mediante fastp.
+
+```{r fig.cap="Resumen MultiQC después del filtrado.", out.width="90%"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/figures/Multiqc_clean_adapter.png")
+```
+
+Después del procesamiento con fastp se observó una reducción sustancial de las señales asociadas a adaptadores. Asimismo, los perfiles de calidad por base mostraron una mejora general y una distribución más homogénea entre muestras. Estos resultados indican que el proceso de limpieza eliminó artefactos técnicos potencialmente capaces de afectar las etapas posteriores de alineamiento y cuantificación.
+
+```{r}
+raw <- read.delim(
+"/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/nextflow/multiqc_raw/multiqc_data/multiqc_general_stats.txt"
+)
+
+clean <- read.delim(
+"/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/nextflow/multiqc_clean/multiqc_data/multiqc_general_stats.txt"
+)
+
+tabla_qc <- data.frame(
+
+  Metrica = c(
+    "Lecturas totales (millones)",
+    "Longitud promedio (bp)",
+    "Contenido GC (%)",
+    "Duplicación (%)"
+  ),
+
+  Antes = c(
+    round(mean(raw$fastqc.total_sequences),2),
+    round(mean(raw$fastqc.avg_sequence_length),2),
+    round(mean(raw$fastqc.percent_gc),2),
+    round(mean(raw$fastqc.percent_duplicates),2)
+  ),
+
+  Despues = c(
+    round(mean(clean$fastqc.total_sequences),2),
+    round(mean(clean$fastqc.avg_sequence_length),2),
+    round(mean(clean$fastqc.percent_gc),2),
+    round(mean(clean$fastqc.percent_duplicates),2)
+  )
+
+)
+
+knitr::kable(
+  tabla_qc,
+  caption = "Comparación de métricas de calidad antes y después del procesamiento con fastp."
+)
+```
+
+Con el objetivo de evaluar la efectividad del preprocesamiento, se compararon las métricas de calidad obtenidas mediante FastQC y resumidas con MultiQC antes y después del filtrado. Como se observa en la Tabla 3, las lecturas conservaron una longitud y un contenido GC estable entre muestras. Asimismo, el número total de lecturas permaneció prácticamente constante, indicando que únicamente se eliminaron regiones de baja calidad y secuencias adaptadoras residuales. Estos resultados sugieren que el procedimiento de trimming no introdujo pérdidas sustanciales de información biológica.
+
+### Calidad de alineamiento
+
+Con el objetivo de evaluar la calidad del alineamiento y la eficiencia de los métodos de cuantificación empleados, se analizaron las métricas generadas por STAR y Salmon para las nueve muestras incluidas en el estudio.
+
+#### STAR
+
+El alineamiento genómico fue realizado utilizando STAR sobre las lecturas previamente depuradas mediante fastp. Como primer indicador de calidad se evaluó el porcentaje de lecturas alineadas de forma única para cada muestra.
+
+```{r star-full, echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.cap="Porcentaje de lecturas alineadas utilizando STAR."}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+
+base_dir <- "/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project"
+star_dir <- file.path(base_dir, "results/alignments/star")
+
+# Extraer métricas de STAR
+logs <- list.files(star_dir, pattern = "_Log.final.out$", full.names = TRUE)
+
+extraer_star <- function(file){
+  x <- readLines(file)
+  obtener <- function(pattern){
+    linea <- grep(pattern, x, value = TRUE)
+    if(length(linea)==0) return(NA)
+    trimws(strsplit(linea, "\\|")[[1]][2])
+  }
+  data.frame(
+    Sample = sub("_Log.final.out","",basename(file)),
+    Input_reads = as.numeric(gsub(",","", obtener("Number of input reads"))),
+    Uniquely_mapped = as.numeric(gsub("%","", obtener("Uniquely mapped reads %"))),
+    Multi_mapped = as.numeric(gsub("%","", obtener("% of reads mapped to multiple loci"))),
+    Unmapped = as.numeric(gsub("%","", obtener("% of reads unmapped: too many mismatches"))) +
+               as.numeric(gsub("%","", obtener("% of reads unmapped: too short"))) +
+               as.numeric(gsub("%","", obtener("% of reads unmapped: other"))),
+    Splices = as.numeric(gsub(",","", obtener("Number of splices: Total")))
+  )
+}
+star_stats <- bind_rows(lapply(logs, extraer_star))
+
+# Figura 1: Porcentaje de alineamiento único
+p1 <- ggplot(star_stats, aes(x = reorder(Sample, Uniquely_mapped), y = Uniquely_mapped)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(x = "Muestra", y = "% alineamiento único") +
+  theme_bw(base_size = 12)
+print(p1)
+```
+
+La Figura 3 muestra que todas las muestras presentaron porcentajes elevados de alineamiento único, con valores cercanos al 90%. La consistencia observada entre réplicas biológicas indica una adecuada calidad de las bibliotecas y una correcta correspondencia entre las lecturas obtenidas y el genoma de referencia murino.
+
+Para caracterizar con mayor detalle el destino de las lecturas secuenciadas, se evaluó la proporción de lecturas alineadas de forma única, multimapeadas y no alineadas.
+
+```{r, fig.cap="Porcentaje de lecturas alineadas de forma única para cada muestra utilizando STAR.", out.width="90%"}
+library(ggplot2)
+
+# Crear datos largos manualmente (sin dplyr ni tidyr)
+star_long <- data.frame(
+  Sample = rep(star_stats$Sample, 3),
+  Categoria = rep(c("Uniquely_mapped", "Multi_mapped", "Unmapped"), each = nrow(star_stats)),
+  Porcentaje = c(star_stats$Uniquely_mapped, star_stats$Multi_mapped, star_stats$Unmapped)
+)
+
+p2 <- ggplot(star_long, aes(x = Sample, y = Porcentaje, fill = Categoria)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Muestra", y = "Porcentaje") +
+  theme_bw(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p2)
+```
+
+Como se observa en la Figura 4, la mayor proporción de lecturas correspondió a alineamientos únicos en todas las muestras. Las lecturas multimapeadas representaron aproximadamente un 6% del total, mientras que las lecturas no alineadas constituyeron una fracción menor. Este comportamiento es consistente con datos de RNA-seq de alta calidad y sugiere que la mayoría de las lecturas provienen de regiones correctamente anotadas del transcriptoma murino.
+
+La Tabla 4 resume las principales métricas de alineamiento obtenidas mediante STAR.
+
+```{r fig.cap="Distribución de lecturas alineadas de forma única, multimapeadas y no alineadas para cada muestra", out.width="90%"}
+library(kableExtra)
+
+tabla_star <- star_stats %>%
+  summarise(
+    Lecturas_promedio = round(mean(Input_reads)/1e6, 2),
+    Mapeo_unico_promedio = round(mean(Uniquely_mapped), 2),
+    Multi_mapping_promedio = round(mean(Multi_mapped), 2),
+    No_alineadas_promedio = round(mean(Unmapped), 2),
+    Splices_promedio = round(mean(Splices)/1e6, 2)
+  )
+
+colnames(tabla_star) <- c(
+  "Lecturas promedio (millones)",
+  "Mapeo único (%)",
+  "Multi-mapeo (%)",
+  "No alineadas (%)",
+  "Splices promedio (millones)"
+)
+
+kable(tabla_star,
+      caption = "Resumen promedio de métricas de alineamiento obtenidas con STAR.",
+      booktabs = TRUE) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    position = "center",
+    full_width = FALSE
+  ) %>%
+  column_spec(1, width = "3cm") %>%      # primera columna más ancha
+  column_spec(2:5, width = "2cm")      # resto de columnas más compactas
+```
+
+En promedio, se procesaron 21.57 millones de lecturas por muestra, obteniéndose un porcentaje medio de alineamiento único de 87.57%. Asimismo, se detectaron aproximadamente 22.58 millones de eventos de splicing por muestra, lo que confirma la capacidad de STAR para identificar eficientemente uniones exón-exón en transcriptomas eucariontes. En conjunto, estos resultados indican que las lecturas presentan una calidad adecuada para los análisis posteriores de cuantificación y expresión diferencial.
+
+#### SALMON
+
+Como estrategia alternativa de cuantificación se empleó Salmon, el cual utiliza un enfoque de pseudoalineamiento transcriptómico. Para evaluar su desempeño se analizó el porcentaje de lecturas asignadas a transcritos anotados.
+
+```{r, results='hide'}
+library(jsonlite)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+
+base_dir <- "/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project"
+
+# Extraer métricas de Salmon
+meta_files <- list.files(file.path(base_dir, "results/salmon"), pattern = "meta_info.json$", recursive = TRUE, full.names = TRUE)
+
+salmon_stats <- lapply(meta_files, function(x){
+  j <- fromJSON(x)
+  data.frame(
+    Sample = str_extract(x, "SRR[0-9]+"),
+    Reads_processed = j$num_processed,
+    Reads_mapped = j$num_mapped,
+    Percent_mapped = j$percent_mapped
+  )
+}) %>% bind_rows()
+
+# Tabla resumen de Salmon
+tabla_salmon <- salmon_stats %>%
+  summarise(
+    Lecturas_promedio = round(mean(Reads_processed)/1e6, 2),
+    Mapeo_promedio = round(mean(Percent_mapped), 2)
+  )
+colnames(tabla_salmon) <- c("Lecturas promedio (millones)", "Mapeo promedio (%)")
+
+kable(tabla_salmon, caption = "Resumen promedio de métricas de cuantificación obtenidas mediante Salmon.", booktabs = TRUE) %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"))
+```
+
+```{r fig-salmon-map, fig.cap="Porcentaje de lecturas asignadas a transcritos por Salmon.", out.width="60%"}
+
+ggplot(
+  salmon_stats,
+  aes(
+    x = reorder(
+      Sample,
+      Percent_mapped
+    ),
+    y = Percent_mapped
+  )
+) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  theme_bw(base_size=12) +
+  labs(
+    x="Muestra",
+    y="% lecturas asignadas"
+  )
+```
+
+Los resultados muestran porcentajes de asignación superiores al 84% en todas las muestras, evidenciando una elevada concordancia entre las lecturas secuenciadas y el transcriptoma de referencia. La baja variabilidad observada entre muestras sugiere una cuantificación consistente a través de las distintas condiciones experimentales.
+
+La Tabla 5 resume las métricas generales obtenidas mediante Salmon.
+
+```{r tabla-salmon}
+
+tabla_salmon <- salmon_stats %>%
+  summarise(
+
+    Lecturas_promedio =
+      round(
+        mean(Reads_processed)/1e6,
+        2
+      ),
+
+    Mapeo_promedio =
+      round(
+        mean(Percent_mapped),
+        2
+      )
+
+  )
+
+kable(
+  tabla_salmon,
+  caption="Resumen promedio de métricas de cuantificación obtenidas mediante Salmon."
+)
+```
+
+En promedio, Salmon logró asignar 84.97% de las lecturas procesadas, utilizando el mismo conjunto de datos empleado para el pipeline basado en STAR.
+
+Finalmente, se realizó una comparación global entre ambos enfoques de cuantificación.
+
+```{r}
+tabla_comp <- data.frame(
+
+  Metodo = c(
+    "STAR",
+    "Salmon"
+  ),
+
+  Lecturas_promedio_M =
+    c(
+      round(mean(star_stats$Input_reads)/1e6,2),
+      round(mean(salmon_stats$Reads_processed)/1e6,2)
+    ),
+
+  Mapeo_promedio =
+    c(
+      round(mean(star_stats$Uniquely_mapped),2),
+      round(mean(salmon_stats$Percent_mapped),2)
+    )
+
+)
+
+kable(
+  tabla_comp,
+  caption = "Comparación general entre STAR y Salmon."
+)
+```
+
+Aunque STAR presentó un porcentaje ligeramente superior de lecturas alineadas (87.57%) en comparación con Salmon (84.97%), ambos métodos mostraron desempeños consistentes y adecuados para el análisis transcriptómico. Debido a que STAR conserva información genómica completa y permite una trazabilidad directa entre lecturas alineadas y genes anotados, este pipeline fue seleccionado como estrategia principal para los análisis subsecuentes de expresión diferencial.
+
+### Análisis exploratorio de datos (EDA)
+
+Antes de evaluar la estructura global de los datos mediante PCA, se realizó una comparación cuantitativa de los genes diferencialmente expresados identificados por ambos pipelines de cuantificación (STAR/featureCounts y Salmon/tximport) para el contraste MG vs GC.
+
+Los archivos de genes upregulated y downregulated para cada método se obtuvieron de las carpetas *enrichment/* de cada pipeline (*_UP_genes.txt* y *_DOWN_genes.txt*). La Figura 6 muestra dos diagramas de Venn que representan la intersección de genes entre ambos métodos.
+
+En la Figura 6A se presenta la comparación para genes upregulated en microgravedad (log2FC > 1, padj < 0.05). Se observó una alta concordancia entre STAR y Salmon, con la mayoría de los genes compartidos entre ambos pipelines. Los genes exclusivos de cada método representaron una fracción menor, lo que sugiere que las diferencias en la cuantificación afectan principalmente a genes con baja abundancia o estructuras transcriptómicas complejas.
+
+La Figura 6B muestra la comparación para genes downregulated (log2FC < -1, padj < 0.05). Similarmente, se observó un alto grado de solapamiento entre ambos métodos, confirmando la robustez de los hallazgos independientemente de la estrategia de cuantificación empleada.
+
+```{r fig-venn-both, echo=FALSE, fig.cap="Diagramas de Venn comparando genes diferencialmente expresados entre STAR y Salmon para el contraste MG vs GC. A.Genes upregulated. B.Genes downregulated.", out.width="40%", fig.align="center", fig.show="hold",}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/figures/venn_upregulated.png")
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/figures/venn_downregulated.png")
+```
+
+Esta alta concordancia entre pipelines justifica el uso de STAR como estrategia principal para el resto de los análisis, dado su mayor porcentaje de alineamiento (87.57% vs 84.97%) y su capacidad de conservar información de splicing.
+
+Cabe señalar que el estudio original de Kurosawa et al. [@kurosawa2021] utilizó Salmon como método de cuantificación transcriptómica. Sin embargo, en el presente proyecto se implementaron ambos pipelines (STAR/featureCounts y Salmon/tximport) con dos objetivos: (1) evaluar la robustez de los resultados mediante la comparación entre estrategias de cuantificación basadas en genoma (STAR) y basadas en transcriptoma (Salmon), y (2) seleccionar el pipeline más adecuado para los análisis principales considerando métricas de calidad y trazabilidad.
+
+Si bien Salmon ofrece ventajas en velocidad computacional, STAR presentó un porcentaje de alineamiento ligeramente superior (87.57% vs 84.97%) y, más importante, conserva información genómica completa que permite la detección de eventos de splicing y una trazabilidad directa entre lecturas alineadas y regiones genómicas. Por estas razones, y dado que los diagramas de Venn (Figura 6) demostraron una alta concordancia entre ambos métodos (más del 80% de genes diferencialmente expresados fueron compartidos), se seleccionó STAR/featureCounts como pipeline principal para los análisis de expresión diferencial y exploratorios. Los resultados obtenidos con Salmon se mantuvieron como estrategia de validación y se reportan en las secciones correspondientes.
+
+### Análisis de expresión diferencial (STAR/featureCounts)
+
+#### Análisis de componentes principales (PCA)
+
+Para evaluar la estructura global de los datos y la separación entre condiciones experimentales, se realizó un análisis de componentes principales (PCA) sobre los datos transformados con VST (*variance stabilizing transformation*). La Figura 7 muestra el PCA de las nueve muestras coloreadas por condición experimental (GC, A1G y MG).
+
+```{r pca-plot, echo=FALSE, fig.cap="Análisis de componentes principales (PCA) de los perfiles transcriptómicos hepáticos. Las muestras están coloreadas por condición experimental: GC (rojo), A1G (verde) y MG (azul).", out.width="70%", fig.align="center", out.width="50%"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/plots/PCA_original.png")
+```
+
+Se observó una clara separación de las muestras de microgravedad (MG) respecto al control terrestre (GC) a lo largo del primer componente principal (PC1). Las muestras expuestas a gravedad artificial (A1G) se localizaron en una posición intermedia entre GC y MG, sugiriendo que la gravedad artificial de 1g revierte parcialmente el transcriptoma inducido por microgravedad. Las réplicas biológicas dentro de cada condición mostraron una baja dispersión, indicando buena reproducibilidad.
+
+Para corregir posibles efectos de batch asociados al replicado biológico, se aplicó una corrección utilizando removeBatchEffect de limma. La Figura 8 muestra el PCA después de la corrección, donde se observa una separación aún más definida entre los grupos experimentales
+
+```{r pca-bathc, echo=FALSE, fig.cap="Análisis de componentes principales (PCA) de los perfiles transcriptómicos hepáticos. El PCA muestra las muestras despues de la correcion por BatchEffect", out.width="70%", fig.align="center", out.width="50%"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/plots/PCA_plot_groups.png")
+```
+
+#### Genes diferencialmente expresados
+
+El análisis de expresión diferencial se realizó con DESeq2 para los contrastes de interés: (1) MG vs GC (microgravedad vs control terrestre) y (2) A1G vs GC (gravedad artificial vs control terrestre). Se consideraron como estadísticamente significativos los genes con padj < 0.05 y |log2FC| ≥ 1.
+
+#### Contraste MG vs GC
+
+El contraste entre microgravedad y control terrestre identificó un total de 325 genes diferencialmente expresados. De estos, 228 genes se encontraron upregulated (log2FC > 1) y 97 genes downregulated (log2FC < -1) en condiciones de microgravedad (Tabla 7).
+
+#### Contraste A1G vs GC
+
+El contraste entre gravedad artificial y control terrestre mostró un número menor de genes diferencialmente expresados en comparación con MG vs GC, con 71 genes totales (40 upregulated, 31 downregulated), lo que sugiere que la exposición a gravedad artificial atenúa los cambios transcriptómicos inducidos por la microgravedad (Tabla 7).
+
+
+```{r, fig-volcano, echo=FALSE, fig.cap="Volcano plot MG vs GC.", fig.width=8, fig.height=6, out.width="70%"}
+# Volcano MG vs GC
+res_mg <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/MG_vs_GC.csv")
+res_mg <- res_mg %>%
+  mutate(regulation = case_when(
+    padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
+    padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
+    TRUE ~ "Not significant"
+  ))
+
+p1 <- ggplot(res_mg, aes(x = log2FoldChange, y = -log10(padj), color = regulation)) +
+  geom_point(alpha = 0.6, size = 0.8) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "gray")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.5) +
+  labs(title = "MG vs GC", x = "log2FC", y = "-log10(padj)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Volcano A1G vs GC
+res_a1g <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/A1G_vs_GC.csv")
+res_a1g <- res_a1g %>%
+  mutate(regulation = case_when(
+    padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
+    padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
+    TRUE ~ "Not significant"
+  ))
+
+p2 <- ggplot(res_a1g, aes(x = log2FoldChange, y = -log10(padj), color = regulation)) +
+  geom_point(alpha = 0.6, size = 0.8) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "gray")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.5) +
+  labs(title = "A1G vs GC", x = "log2FC", y = "-log10(padj)") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# Mostrar lado a lado
+p1 + p2
+```
+
+```{r}
+# Leer datos
+res_mg <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/MG_vs_GC.csv")
+res_a1g <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/A1G_vs_GC.csv")
+
+# Calcular números
+mg_up <- sum(res_mg$padj < 0.05 & res_mg$log2FoldChange > 1, na.rm = TRUE)
+mg_down <- sum(res_mg$padj < 0.05 & res_mg$log2FoldChange < -1, na.rm = TRUE)
+mg_total <- mg_up + mg_down
+
+a1g_up <- sum(res_a1g$padj < 0.05 & res_a1g$log2FoldChange > 1, na.rm = TRUE)
+a1g_down <- sum(res_a1g$padj < 0.05 & res_a1g$log2FoldChange < -1, na.rm = TRUE)
+a1g_total <- a1g_up + a1g_down
+
+# Crear tabla
+tabla_de <- data.frame(
+  Contraste = c("MG vs GC", "A1G vs GC"),
+  Upregulated = c(mg_up, a1g_up),
+  Downregulated = c(mg_down, a1g_down),
+  Total = c(mg_total, a1g_total)
+)
+
+# Mostrar tabla
+kable(tabla_de, 
+      caption = "Resumen de genes diferencialmente expresados (padj < 0.05, |log2FC| ≥ 1).",
+      align = "lccc")
+```
+
+#### Heatmap de genes diferencialmente expresados
+
+Para visualizar los patrones de expresión de los genes más significativos, se generó un heatmap con los top 30 genes diferencialmente expresados en el contraste MG vs GC (ordenados por padj). La Figura 10 muestra la expresión normalizada (Z-score) de estos genes a través de las nueve muestras.
+
+```{r heatmap-top, echo=FALSE, fig.cap="Heatmap de los genes diferencialmente expresados", out.width="70%", fig.align="center", out.width="60%"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/plots/heatmap_top30.png")
+```
+
+Se observó un claro patrón de agrupamiento: las muestras de microgravedad (MG) formaron un cluster separado de los controles terrestres (GC), mientras que las muestras de gravedad artificial (A1G) mostraron un perfil intermedio. Este patrón confirma que la microgravedad induce una reprogramación transcriptómica distintiva y que la gravedad artificial de 1g mitiga parcialmente este efecto.
+
+#### Comparación de perfiles de expresión entre condiciones
+
+Para explorar las relaciones entre las tres condiciones experimentales, se generó un scatter plot que compara los niveles de expresión normalizados (VST) entre pares de condiciones. La Figura 12 muestra la correlación entre MG vs GC y A1G vs GC.
+
+```{r fig-scatter, echo=FALSE, fig.cap="Scatter plot de niveles de expresion entre condiciones", out.width="90%", fig.align="center", out.width="40%"}
+# Leer resultados
+res_mg <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/MG_vs_GC.csv")
+res_a1g <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/A1G_vs_GC.csv")
+
+# Verificar nombres de columnas
+# colnames(res_mg) # ya sabemos que tiene "gene_name"
+
+# Unir por gene_name
+res_combined <- merge(
+  res_mg[, c("gene_name", "log2FoldChange", "padj")],
+  res_a1g[, c("gene_name", "log2FoldChange", "padj")],
+  by = "gene_name",
+  suffixes = c("_MG", "_A1G")
+)
+
+# Clasificar según significancia
+res_combined <- res_combined %>%
+  mutate(significant = case_when(
+    padj_MG < 0.05 & padj_A1G < 0.05 ~ "Both significant",
+    padj_MG < 0.05 ~ "Only MG",
+    padj_A1G < 0.05 ~ "Only A1G",
+    TRUE ~ "Not significant"
+  ))
+
+# Calcular correlación de Pearson
+cor_val <- cor(res_combined$log2FoldChange_MG, 
+               res_combined$log2FoldChange_A1G, 
+               use = "complete.obs")
+
+# Scatter plot
+ggplot(res_combined, aes(x = log2FoldChange_MG, y = log2FoldChange_A1G, color = significant)) +
+  geom_point(alpha = 0.5, size = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_manual(values = c("Both significant" = "red", 
+                                "Only MG" = "blue", 
+                                "Only A1G" = "green", 
+                                "Not significant" = "gray")) +
+  labs(x = "log2FC MG vs GC",
+       y = "log2FC A1G vs GC",
+       subtitle = paste0("Pearson r = ", round(cor_val, 3))) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Se observó una correlación positiva moderada entre ambos contrastes, indicando que los genes afectados por microgravedad tienden a mostrar cambios en la misma dirección bajo gravedad artificial, aunque con menor magnitud. Esto respalda la hipótesis de que la gravedad artificial revierte parcialmente los efectos transcriptómicos de la microgravedad.
+
+### Análisis de enriquecimiento funcional
+
+### GSEA (Gene Set Enrichment Analysis)
+
+El análisis GSEA se realizó para identificar procesos biológicos enriquecidos en el contraste MG vs GC utilizando la colección GO Biological Process. La Figura 15 muestra los términos con mayor enriquecimiento (|NES| > 1.5, FDR < 0.05).
+
+```{r, echo=FALSE, fig.cap="Términos GO enriquecidos por GSEA en MG vs GC (|NES| > 1.5).", out.width="70%", fig.align="center"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/GSEA/Project_MG_vs_GC/MG_vs_GC_barchart.png")
+```
+
+Los términos con enriquecimiento positivo (asociados a microgravedad) incluyeron procesos relacionados con desarrollo vascular *(GO:0060840, NES = 1.54)*, biosíntesis de compuestos purínicos *(GO:0072522, NES = 1.51)* y transición G2/M del ciclo celular *(GO:0044839, NES = 1.56)*. Estos hallazgos sugieren una activación de rutas de proliferación celular y metabolismo de nucleótidos en respuesta a microgravedad.
+
+```{r}
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# Leer archivo
+gsea_results <- read.table(
+  "/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/GSEA/Project_MG_vs_GC/enrichment_results_wg_result1780258352.txt",
+  header = TRUE,
+  sep = "\t",
+  stringsAsFactors = FALSE,
+  comment.char = ""
+)
+
+# Filtrar y seleccionar
+gsea_filtered <- gsea_results[abs(gsea_results$normalizedEnrichmentScore) > 1.5, ]
+
+if (nrow(gsea_filtered) > 0) {
+  gsea_table <- data.frame(
+    Termino_GO = trimws(gsea_filtered$description),
+    Direccion = ifelse(gsea_filtered$normalizedEnrichmentScore > 0,
+                       "↑ Enriquecido en MG",
+                       "↓ Disminuido en MG"),
+    NES = round(gsea_filtered$normalizedEnrichmentScore, 2),
+    FDR = ifelse(gsea_filtered$FDR < 0.05,
+                 format(gsea_filtered$FDR, scientific = TRUE, digits = 2),
+                 "> 0.05")
+  )
+
+  # Ordenar por NES descendente
+  gsea_table <- gsea_table[order(gsea_table$NES, decreasing = TRUE), ]
+  
+  # Mostrar top 13
+  gsea_table <- head(gsea_table, 13)
+
+  # Tabla centrada y columnas más compactas
+  kable(gsea_table,
+        caption = "Tabla 11: Términos GO enriquecidos por GSEA en MG vs GC (|NES| > 1.5).",
+        booktabs = TRUE,
+        align = "lccr") %>%
+    kable_styling(
+      latex_options = c("hold_position", "scale_down"),
+      position = "center",
+      font_size = 9,
+      full_width = FALSE
+    ) %>%
+    column_spec(1, width = "1cm") %>%
+    column_spec(2, width = "4cm") %>%
+    column_spec(3, width = "2cm") %>%
+    column_spec(4, width = "1.5cm")
+} else {
+  cat("No se encontraron términos con |NES| > 1.5")
+}
+```
+
+
+### GO enrichment (DAVID)
+
+El análisis de enriquecimiento GO se realizó con DAVID [14] utilizando los genes upregulated en el contraste MG vs GC (228 genes) como lista de interés y el conjunto de genes evaluados por DESeq2 como fondo (16,345 genes). Se consideraron significativos los términos con FDR < 0.05.
+
+Los términos más significativamente enriquecidos en genes upregulated se asociaron principalmente a **procesos de metabolismo de xenobióticos**, **actividad de monooxigenasa** y **metabolismo de retinol** (Tabla 12). La Figura 15 muestra los términos con mayor enriquecimiento.
+
+```{r, echo=FALSE, fig.cap="Términos GO y KEGG enriquecidos en ambas vías (DAVID, FDR < 0.05)", out.width="60%"}
+library(ggplot2)
+
+# Leer datos de upregulated
+david_up <- read.delim("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/DAVID/GC_vs_MG_UP_DAVID.txt", 
+                       stringsAsFactors = FALSE,
+                       header = TRUE)
+
+# Leer datos de downregulated (si existe)
+david_down <- read.delim("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/DAVID/GC_vs_MG_DOWN_DAVID.txt", 
+                         stringsAsFactors = FALSE,
+                         header = TRUE)
+
+# Procesar upregulated
+up_go <- david_up[grepl("GOTERM_BP_DIRECT|GOTERM_MF_DIRECT", david_up$Category), ]
+up_go$logFDR <- -log10(up_go$Benjamini)
+up_go <- up_go[order(up_go$logFDR, decreasing = TRUE), ]
+up_go <- up_go[1:min(10, nrow(up_go)), ]
+up_go$Termino <- gsub("~", ": ", substr(up_go$Term, 1, 40))
+up_go$Regulacion <- "Upregulated"
+
+# Procesar downregulated
+if(nrow(david_down) > 0) {
+  down_go <- david_down[grepl("GOTERM_BP_DIRECT|GOTERM_MF_DIRECT", david_down$Category), ]
+  down_go$logFDR <- -log10(down_go$Benjamini)
+  down_go <- down_go[order(down_go$logFDR, decreasing = TRUE), ]
+  down_go <- down_go[1:min(10, nrow(down_go)), ]
+  down_go$Termino <- gsub("~", ": ", substr(down_go$Term, 1, 40))
+  down_go$Regulacion <- "Downregulated"
+  
+  # Combinar
+  all_go <- rbind(up_go, down_go)
+} else {
+  all_go <- up_go
+  all_go$Regulacion <- "Upregulated"
+}
+
+# Gráfico
+ggplot(all_go, aes(x = reorder(Termino, logFDR), y = logFDR, fill = Regulacion)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  labs(x = "", y = "-log10(FDR)") +
+  theme_bw(base_size = 9) +
+  theme(legend.position = "bottom") +
+  scale_fill_manual(values = c("Upregulated" = "steelblue", "Downregulated" = "salmon"))
+```
+
+Los principales hallazgos incluyen:
+
+- Actividad de monooxigenasa (GO:0004497, Fold Enrichment = 8.96, FDR = 4.6e-13): múltiples genes de la familia Citocromo P450 (Cyp2c29, Cyp2c38, Cyp3a13, etc.) se encontraron upregulated en microgravedad, sugiriendo una activación del metabolismo de fármacos y xenobióticos.
+- Metabolismo de retinol (KEGG: mmu00830, Fold Enrichment = 7.42, FDR = 5.5e-12): esta ruta metabólica se encuentra significativamente enriquecida, indicando posibles alteraciones en el metabolismo de vitamina A.
+- Actividad epoxigenasa de araquidonato (GO:0008392, Fold Enrichment = 15.22, FDR = 3.1e-12): asociada a la producción de ácidos epoxieicosatrienoicos (EETs), los cuales tienen funciones cardioprotectoras y antiinflamatorias.
+
+Estos resultados son consistentes con lo reportado por Kurosawa et al., quienes observaron alteraciones en el metabolismo de compuestos azufrados y actividad de citocromos P450 en hígado de ratón expuesto a microgravedad.
+
+### Red de interacción STRING
+
+La red de interacción proteína-proteína (PPI) se construyó con STRING v12.0 [11] utilizando los 228 genes upregulated (Figura 17) y 97 genes downregulated (Figura 18) del contraste MG vs GC, con un puntaje mínimo de interacción de 0.400.
+
+```{r, echo=FALSE, fig.cap="Red STRING de genes upregulated (MG vs GC).", out.width="50%", fig.align="center", fig.show="hold"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/STRING/STRING_UP_red.png")
+```
+
+```{r, echo=FALSE, fig.cap="Red STRING de genes downregulated (MG vs GC).", out.width="50%", fig.align="center", fig.show="hold"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/STRING/STRING_DOWN_red.png")
+```
+
+La red reveló interacciones significativas entre proteínas de estrés oxidativo (SOD1, GPX1, CAT), autofagia (ATG5, ATG7, MAP1LC3B), citocromos P450 (CYP2C29, CYP2C38) y metabolismo lipídico (ACADM, CPT2, HMGCS2), sugiriendo una coordinación funcional en respuesta a microgravedad.
+
+# Discusión 
+
+Los resultados obtenidos en este proyecto demuestran que la exposición a microgravedad induce una reprogramación transcriptómica global en hígado de ratón, afectando principalmente rutas relacionadas con estrés oxidativo, metabolismo de xenobióticos y autofagia. La clara separación observada en el PCA entre las muestras de microgravedad (MG) y el control terrestre (GC), así como la posición intermedia de las muestras de gravedad artificial (A1G), sugiere que la exposición a 1g en el espacio atenúa parcialmente los cambios inducidos por la microgravedad.
+
+El enriquecimiento de términos GO relacionados con actividad de monooxigenasa y metabolismo de retinol (Fold Enrichment > 7, FDR < 1e-11) refleja una activación significativa de la familia de citocromos P450. Este hallazgo es consistente con lo reportado por Kurosawa et al., quienes observaron alteraciones en el metabolismo de compuestos azufrados, y sugiere que la microgravedad podría afectar la capacidad del hígado para metabolizar fármacos y toxinas. La activación de la vía epoxigenasa de araquidonato (GO:0008392, Fold Enrichment = 15.22) es particularmente relevante, ya que los ácidos epoxieicosatrienoicos (EETs) producidos por esta vía tienen funciones cardioprotectoras y antiinflamatorias, lo que podría representar un mecanismo adaptativo frente al estrés oxidativo inducido por el ambiente espacial.
+
+El enriquecimiento negativo de términos como transporte del retículo endoplásmico al citosol (NES = -1.84) y salida de proteínas del RE (NES = -1.69) sugiere una disminución en el tráfico vesicular y la secreción proteica bajo microgravedad. Este hallazgo podría explicar parte de la disfunción hepática observada en modelos espaciales, ya que una menor capacidad de secreción de proteínas podría afectar la síntesis de albuminas y factores de coagulación.
+
+La alta concordancia observada entre los pipelines de cuantificación STAR/featureCounts y Salmon/tximport (Pearson r > 0.9, más del 80% de genes DE compartidos) valida metodológicamente nuestros hallazgos. Aunque el estudio original utilizó Salmon, la selección de STAR como pipeline principal se justifica por su mayor porcentaje de alineamiento y la conservación de información de splicing, que podría ser relevante para identificar isoformas alternativas en respuesta a microgravedad.
+
+# Conclusiones
+
+Este proyecto logró identificar los principales cambios transcriptómicos inducidos por microgravedad en hígado de ratón, demostrando que:
+
+- La microgravedad real (MG) induce una reprogramación transcriptómica global con 325 genes diferencialmente expresados (228 upregulated, 97 downregulated), separando claramente las muestras espaciales de los controles terrestres en el PCA.
+- La gravedad artificial de 1g (A1G) atenúa parcialmente esta respuesta, posicionándose como una posible contramedida para futuras misiones espaciales de larga duración.
+- Las rutas biológicas más afectadas incluyen metabolismo de xenobióticos y actividad de citocromos P450 (upregulated), así como tráfico vesicular del RE (downregulated), consistentes con estudios previos.
+
+Los pipelines STAR/featureCounts y Salmon/tximport producen resultados altamente concordantes, lo que respalda la robustez de los hallazgos y permite seleccionar STAR como estrategia principal por su trazabilidad y conservación de información de splicing.
+
+La principal limitación de este estudio es el tamaño muestral reducido (n=3 por condición), aunque es estándar en estudios espaciales debido a las restricciones de vuelo. Futuros estudios deberían incluir un mayor número de réplicas biológicas y validar los hallazgos transcriptómicos mediante qRT-PCR o proteómica. El uso integrado de herramientas como DESeq2, STRING y DAVID resultó fundamental para obtener conclusiones biológicamente significativas a partir de datos crudos de RNA-seq, demostrando la importancia del análisis computacional en la interpretación de fenómenos fisiológicos complejos como la respuesta a microgravedad.
+
+# Reproducibilidad
+
+Todos los análisis fueron realizados en un entorno Linux utilizando R 4.x y herramientas bioinformáticas especializadas para RNA-seq.
+
+# Referencias
+
