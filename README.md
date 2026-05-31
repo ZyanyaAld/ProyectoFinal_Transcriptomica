@@ -91,7 +91,7 @@ R -e "rmarkdown::render('docs/VelazquezAldrete_Zyanya_ProyectoFinal.Rmd')"
 ## Contacto
 
 Para dudas o solicitud de archivos adicionales:  
-📧 zyanyava@ciencias.unam.mx
+📧 zyanyava@lcg.unam.mx
 
 ---
 
