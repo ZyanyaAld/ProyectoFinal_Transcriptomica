@@ -1,0 +1,22 @@
+# Archivos pesados de datos
+*.fastq.gz
+*.bam
+*.sam
+*.fastq
+
+# Archivos temporales de R
+.RData
+.Rhistory
+.Rproj.user
+
+# Carpetas de resultados temporales
+.nextflow/
+work/
+logs/
+quarto-linux-amd64.deb
+test_venn.png
+
+# Archivos grandes de alineamiento
+results/alignments/
+results/nextflow/
+results/salmon/*.sf

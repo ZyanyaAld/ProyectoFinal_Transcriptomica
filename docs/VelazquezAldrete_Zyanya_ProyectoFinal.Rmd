@@ -360,7 +360,7 @@ Con el objetivo de evaluar la calidad del alineamiento y la eficiencia de los m�
 
 El alineamiento genómico fue realizado utilizando STAR sobre las lecturas previamente depuradas mediante fastp. Como primer indicador de calidad se evaluó el porcentaje de lecturas alineadas de forma única para cada muestra.
 
-```{r star-full, echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.cap="Porcentaje de lecturas alineadas utilizando STAR."}
+```{r star-full, echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.cap="Porcentaje de lecturas alineadas utilizando STAR.", out.width="60%"}
 
 library(dplyr)
 library(tidyr)
@@ -407,7 +407,7 @@ La Figura 3 muestra que todas las muestras presentaron porcentajes elevados de a
 
 Para caracterizar con mayor detalle el destino de las lecturas secuenciadas, se evaluó la proporción de lecturas alineadas de forma única, multimapeadas y no alineadas.
 
-```{r, fig.cap="Porcentaje de lecturas alineadas de forma única para cada muestra utilizando STAR.", out.width="90%"}
+```{r, fig.cap="Porcentaje de lecturas alineadas de forma única para cada muestra utilizando STAR.", out.width="60%"}
 library(ggplot2)
 
 # Crear datos largos manualmente (sin dplyr ni tidyr)
@@ -937,7 +937,21 @@ La principal limitación de este estudio es el tamaño muestral reducido (n=3 po
 
 # Reproducibilidad
 
-Todos los análisis fueron realizados en un entorno Linux utilizando R 4.x y herramientas bioinformáticas especializadas para RNA-seq.
+El código completo y los resultados generados están disponibles en el repositorio público de GitHub: [https://github.com/ZyanyaAld/ProyectoFinal_Transcriptomica](https://github.com/ZyanyaAld/ProyectoFinal_Transcriptomica)
+
+El repositorio contiene los scripts de análisis (`src/`), las tablas de expresión diferencial (`results/deseq2/tables/`), las listas de genes (`results/deseq2/enrichment/`) y el archivo R Markdown original (`docs/`).
+
+**Entorno computacional:** Linux (Rocky Linux 8.10), R 4.3.2, FastQC v0.12.1, MultiQC v1.19, fastp v0.23.4, Nextflow 23.10.0, STAR 2.7.11a, featureCounts 2.0.6, Salmon 1.10.2, DESeq2 1.42.0, clusterProfiler 4.10.0.
+
+**Instrucciones para reproducir:**
+
+```bash
+git clone https://github.com/ZyanyaAld/ProyectoFinal_Transcriptomica.git
+cd ProyectoFinal_Transcriptomica
+nextflow run src/rna_qc.nf -profile docker
+Rscript src/deseq2_star.R
+rmarkdown::render("docs/VelazquezAldrete_Zyanya_ProyectoFinal.Rmd")
+```
 
 # Referencias
 
