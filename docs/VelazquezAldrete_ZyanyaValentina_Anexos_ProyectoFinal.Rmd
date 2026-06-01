@@ -1,0 +1,388 @@
+---
+title: "Anexo: Figuras complementarias"
+subtitle: "Transcriptomic Analysis of Murine Liver Under Microgravity Conditions Using RNA-seq"
+author: "Zyanya Valentina Velazquez Aldrete"
+date: "31 de mayo de 2026"
+output:
+  pdf_document:
+    toc: false
+    number_sections: true
+    latex_engine: xelatex
+fontsize: 12pt
+header-includes:
+  - \usepackage{float}
+  - \floatplacement{figure}{H}
+---
+
+# Anexo: Figuras complementarias
+
+## A.1 Control de calidad - MultiQC
+
+Las siguientes figuras muestran los reportes completos de MultiQC antes y después del filtrado con fastp.
+
+```{r fig-multiqc-raw, echo=FALSE, fig.cap="A1.Resumen MultiQC de las lecturas crudas (antes del filtrado).", out.width="100%", fig.align="center"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/figures/Multiqc_raw.png")
+```
+
+```{r fig-multiqc-clean, echo=FALSE, fig.cap="A2.Resumen MultiQC de las lecturas despues del filtrado.", out.width="100%", fig.align="center"}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/docs/figures/multiqc_clean.png")
+```
+
+## A.2 Comparación de pipelines de alineamiento
+
+Se evaluaron tres pipelines de alineamiento y cuantificación: STAR + featureCounts, HISAT2 + featureCounts y Salmon (pseudoalineamiento). La Tabla A1 muestra las métricas de desempeño para cada pipeline.
+
+```{r tabla-pipelines, echo=FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+library(kableExtra)
+
+# Datos reales obtenidos de los logs de ejecución
+tabla_pipelines <- data.frame(
+  Pipeline = c("STAR + featureCounts", "HISAT2 + featureCounts", "Salmon"),
+  `Mapeo (%)` = c(87.57, 96.62, 84.98),
+  `Tiempo (min)` = c("4.97", "7.25", "2.20"),
+  `Memoria (GB)` = c("27.9", "4.0", "3.8"),
+  `Detección de splicing` = c("Sí", "Sí", "No"),
+  `Conserva info genómica` = c("Sí", "Sí", "No"),
+  `Selección` = c("**Principal**", "Descartado", "Validación")
+)
+
+kable(tabla_pipelines, 
+      caption = "Tabla A2: Comparación de pipelines de alineamiento y cuantificación.",
+      booktabs = TRUE,
+      align = "lcccccll") %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"), font_size = 8)
+```
+
+
+### Justificación de la selección del pipeline
+
+Se evaluaron tres pipelines de alineamiento y cuantificación. HISAT2 + featureCounts presentó el mayor porcentaje de alineamiento (96.62%), seguido por STAR (87.57%) y Salmon (84.98%). En cuanto al tiempo de ejecución, Salmon fue el más rápido (2.20 min), seguido por STAR (4.97 min) y HISAT2 (7.25 min).
+
+STAR + featureCounts fue seleccionado como pipeline principal por las siguientes razones prácticas:
+
+1. Integración con el flujo de trabajo: El pipeline en Nextflow estaba diseñado originalmente para STAR, y modificarlo para HISAT2 requería cambios extensos que no pudieron realizarse dentro del tiempo del proyecto.
+2. Estándar en la literatura: STAR es el alineador más utilizado en estudios de RNA-seq, lo que facilita la comparación con otros trabajos.
+3. Formato de logs: STAR genera archivos _Log.final.out más estructurados para extraer métricas de calidad.
+4. Detección de splicing: Ambos métodos (STAR y HISAT2) conservan información de splicing, a diferencia de Salmon.
+
+Salmon se mantuvo como estrategia de validación por su uso en el artículo original de Kurosawa et al. y por ser el método de cuantificación más rápido. Su falta de conservación de información genómica lo hace menos adecuado como pipeline principal para este estudio.
+
+Por lo tanto, todos los análisis de expresión diferencial y visualizaciones presentadas en el cuerpo principal del proyecto se realizaron con el pipeline STAR + featureCounts.
+
+## A.3 Análisis de componentes principales (PCA)
+
+PCA de los perfiles transcriptómicos para los pipelines STAR y Salmon.
+
+```{r fig-pca-star, echo=FALSE, fig.cap="A3.PCA de muestras (STAR/featureCounts).", out.width="60%", fig.align="center", warning=FALSE, message=FALSE}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/plots/PCA_plot_groups.png")
+```
+
+```{r fig-pca-salmon, echo=FALSE, fig.cap="A4.PCA de muestras (Salmon/tximport).", out.width="60%", fig.align="center", warning=FALSE, message=FALSE}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2_salmon/plots/PCA_plot_groups.png")
+```
+
+## A.4 Volcano plots completos
+
+**Volcano plots para los contrastes MG vs GC y A1G vs GC en STAR**
+
+```{r fig-volcano-mg-full, echo=FALSE, fig.cap="A5: Volcano plot - MG vs GC (STAR).", out.width="60%", fig.align="center", warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+
+res_mg <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/MG_vs_GC.csv")
+
+res_mg <- res_mg %>%
+  mutate(regulation = case_when(
+    padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
+    padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
+    TRUE ~ "Not significant"
+  ))
+
+n_up <- sum(res_mg$regulation == "Upregulated")
+n_down <- sum(res_mg$regulation == "Downregulated")
+
+ggplot(res_mg, aes(x = log2FoldChange, y = -log10(padj), color = regulation)) +
+  geom_point(alpha = 0.6, size = 1) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "gray")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.5) +
+  labs(title = "MG vs GC",
+       x = "log2 Fold Change",
+       y = "-log10(padj)",
+       subtitle = paste0("Upregulated: ", n_up, " | Downregulated: ", n_down)) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+```{r fig-volcano-a1g-full, echo=FALSE, fig.cap="Figura A6: Volcano plot - A1G vs GC (STAR).", out.width="60%", fig.align="center", warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+
+res_a1g <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/A1G_vs_GC.csv")
+
+res_a1g <- res_a1g %>%
+  mutate(regulation = case_when(
+    padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
+    padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
+    TRUE ~ "Not significant"
+  ))
+
+n_up <- sum(res_a1g$regulation == "Upregulated")
+n_down <- sum(res_a1g$regulation == "Downregulated")
+
+ggplot(res_a1g, aes(x = log2FoldChange, y = -log10(padj), color = regulation)) +
+  geom_point(alpha = 0.6, size = 1) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "gray")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.5) +
+  labs(title = "A1G vs GC",
+       x = "log2 Fold Change",
+       y = "-log10(padj)",
+       subtitle = paste0("Upregulated: ", n_up, " | Downregulated: ", n_down)) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+**Volcano plots para los contrastes MG vs GC y A1G vs GC en Salmon**
+
+```{r fig-volcano-mg-salmon, echo=FALSE, fig.cap="A7: Volcano plot - MG vs GC (Salmon).", out.width="60%", fig.align="center", warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+
+res_mg_salmon <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2_salmon/tables/MG_vs_GC.csv")
+
+res_mg_salmon <- res_mg_salmon %>%
+  mutate(regulation = case_when(
+    padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
+    padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
+    TRUE ~ "Not significant"
+  ))
+
+n_up <- sum(res_mg_salmon$regulation == "Upregulated")
+n_down <- sum(res_mg_salmon$regulation == "Downregulated")
+
+ggplot(res_mg_salmon, aes(x = log2FoldChange, y = -log10(padj), color = regulation)) +
+  geom_point(alpha = 0.6, size = 1) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "gray")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.5) +
+  labs(title = "MG vs GC (Salmon)",
+       x = "log2 Fold Change",
+       y = "-log10(padj)",
+       subtitle = paste0("Upregulated: ", n_up, " | Downregulated: ", n_down)) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+```{r fig-volcano-a1g-salmon, echo=FALSE, fig.cap="Figura A8: Volcano plot - A1G vs GC (Salmon).", out.width="60%", fig.align="center",  warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+
+res_a1g_salmon <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2_salmon/tables/A1G_vs_GC.csv")
+
+res_a1g_salmon <- res_a1g_salmon %>%
+  mutate(regulation = case_when(
+    padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
+    padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
+    TRUE ~ "Not significant"
+  ))
+
+n_up <- sum(res_a1g_salmon$regulation == "Upregulated")
+n_down <- sum(res_a1g_salmon$regulation == "Downregulated")
+
+ggplot(res_a1g_salmon, aes(x = log2FoldChange, y = -log10(padj), color = regulation)) +
+  geom_point(alpha = 0.6, size = 1) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "gray")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.5) +
+  labs(title = "A1G vs GC (Salmon)",
+       x = "log2 Fold Change",
+       y = "-log10(padj)",
+       subtitle = paste0("Upregulated: ", n_up, " | Downregulated: ", n_down)) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+## A.5 Heatmap de expresión
+
+Heatmap con los top 30 genes diferencialmente expresados en STAR
+
+```{r fig-heatmap-full, echo=FALSE, fig.cap="Figura A9: Heatmap de expresión (top 30 genes DE en MG vs GC).", out.width="80%", fig.align="center", warning=FALSE, message=FALSE}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/plots/heatmap_top30.png")
+```
+
+Heatmap con los top 30 genes diferencialmente expresados en Salmon
+
+```{r fig-heatmap-salmon, echo=FALSE, fig.cap="Figura A10: Heatmap de expresión (top 30 genes DE en MG vs GC).", out.width="80%", fig.align="center", warning=FALSE, message=FALSE}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2_salmon/plots/heatmap_top30.png")
+```
+
+## A.6 Scatter plots de expresión diferencial
+
+### A.6.1 Scatter plot - STAR (MG vs GC vs A1G vs GC)
+
+El siguiente scatter plot compara los log2 fold changes de los contrastes MG vs GC y A1G vs GC obtenidos con STAR/featureCounts.
+
+```{r fig-scatter-star, echo=FALSE, fig.cap="A11: Comparación de log2FC entre MG vs GC y A1G vs GC (STAR).", out.width="60%", fig.align="center", message=FALSE}
+library(ggplot2)
+library(dplyr)
+
+# Leer resultados de STAR
+res_mg_star <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/MG_vs_GC.csv")
+res_a1g_star <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/A1G_vs_GC.csv")
+
+# Unir por gene_name
+res_star <- merge(
+  res_mg_star[, c("gene_name", "log2FoldChange", "padj")],
+  res_a1g_star[, c("gene_name", "log2FoldChange", "padj")],
+  by = "gene_name",
+  suffixes = c("_MG", "_A1G")
+)
+
+# Calcular correlación
+cor_star <- cor(res_star$log2FoldChange_MG, res_star$log2FoldChange_A1G, use = "complete.obs")
+
+# Clasificar significancia
+res_star <- res_star %>%
+  mutate(significant = case_when(
+    padj_MG < 0.05 & padj_A1G < 0.05 ~ "Both significant",
+    padj_MG < 0.05 ~ "Only MG",
+    padj_A1G < 0.05 ~ "Only A1G",
+    TRUE ~ "Not significant"
+  ))
+
+# Scatter plot
+ggplot(res_star, aes(x = log2FoldChange_MG, y = log2FoldChange_A1G, color = significant)) +
+  geom_point(alpha = 0.5, size = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_manual(values = c("Both significant" = "red", 
+                                "Only MG" = "blue", 
+                                "Only A1G" = "green", 
+                                "Not significant" = "gray")) +
+  labs(x = "log2FC MG vs GC",
+       y = "log2FC A1G vs GC",
+       title = "STAR: MG vs GC vs A1G vs GC",
+       subtitle = paste0("Pearson r = ", round(cor_star, 3))) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+### A.6.2 Scatter plot - Salmon (MG vs GC vs A1G vs GC)
+
+El siguiente scatter plot compara los log2 fold changes de los contrastes MG vs GC y A1G vs GC obtenidos con Salmon/tximport.
+
+```{r fig-scatter-salmon, echo=FALSE, fig.cap="A12: Comparación de log2FC entre MG vs GC y A1G vs GC (Salmon).", out.width="60%", fig.align="center", message=FALSE}
+library(ggplot2)
+library(dplyr)
+
+# Leer resultados de Salmon
+res_mg_salmon <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2_salmon/tables/MG_vs_GC.csv")
+res_a1g_salmon <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2_salmon/tables/A1G_vs_GC.csv")
+
+# Unir por gene_name
+res_salmon <- merge(
+  res_mg_salmon[, c("gene_name", "log2FoldChange", "padj")],
+  res_a1g_salmon[, c("gene_name", "log2FoldChange", "padj")],
+  by = "gene_name",
+  suffixes = c("_MG", "_A1G")
+)
+
+# Calcular correlación
+cor_salmon <- cor(res_salmon$log2FoldChange_MG, res_salmon$log2FoldChange_A1G, use = "complete.obs")
+
+# Clasificar significancia
+res_salmon <- res_salmon %>%
+  mutate(significant = case_when(
+    padj_MG < 0.05 & padj_A1G < 0.05 ~ "Both significant",
+    padj_MG < 0.05 ~ "Only MG",
+    padj_A1G < 0.05 ~ "Only A1G",
+    TRUE ~ "Not significant"
+  ))
+
+# Scatter plot
+ggplot(res_salmon, aes(x = log2FoldChange_MG, y = log2FoldChange_A1G, color = significant)) +
+  geom_point(alpha = 0.5, size = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_manual(values = c("Both significant" = "red", 
+                                "Only MG" = "blue", 
+                                "Only A1G" = "green", 
+                                "Not significant" = "gray")) +
+  labs(x = "log2FC MG vs GC",
+       y = "log2FC A1G vs GC",
+       title = "Salmon: MG vs GC vs A1G vs GC",
+       subtitle = paste0("Pearson r = ", round(cor_salmon, 3))) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+### A.6.3 Comparación STAR vs Salmon (MG vs GC)
+
+Finalmente, se comparan directamente los log2 fold changes obtenidos con ambos pipelines para el contraste MG vs GC.
+
+```{r fig-scatter-star-salmon, echo=FALSE, fig.cap="A13: Correlación de log2FC entre STAR y Salmon (MG vs GC).", out.width="60%", fig.align="center", message=FALSE}
+library(ggplot2)
+library(dplyr)
+
+# Leer resultados
+res_star <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2/tables/MG_vs_GC.csv")
+res_salmon <- read.csv("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/deseq2_salmon/tables/MG_vs_GC.csv")
+
+# Unir por gene_name
+res_combined <- merge(
+  res_star[, c("gene_name", "log2FoldChange", "padj")],
+  res_salmon[, c("gene_name", "log2FoldChange", "padj")],
+  by = "gene_name",
+  suffixes = c("_STAR", "_Salmon")
+)
+
+# Calcular correlación
+cor_val <- cor(res_combined$log2FoldChange_STAR, res_combined$log2FoldChange_Salmon, use = "complete.obs")
+
+# Clasificar significancia
+res_combined <- res_combined %>%
+  mutate(significant = case_when(
+    padj_STAR < 0.05 & padj_Salmon < 0.05 ~ "Both significant",
+    padj_STAR < 0.05 ~ "Only STAR",
+    padj_Salmon < 0.05 ~ "Only Salmon",
+    TRUE ~ "Not significant"
+  ))
+
+# Scatter plot
+ggplot(res_combined, aes(x = log2FoldChange_STAR, y = log2FoldChange_Salmon, color = significant)) +
+  geom_point(alpha = 0.5, size = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_manual(values = c("Both significant" = "red", 
+                                "Only STAR" = "blue", 
+                                "Only Salmon" = "green", 
+                                "Not significant" = "gray")) +
+  labs(x = "log2FC STAR",
+       y = "log2FC Salmon",
+       title = "Comparación STAR vs Salmon (MG vs GC)",
+       subtitle = paste0("Pearson r = ", round(cor_val, 3))) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Se observó una alta correlación en ambos pipelines entre los contrastes MG vs GC y A1G vs GC, así como entre los propios pipelines, lo que confirma la robustez de los resultados.
+
+
+## A.7 Análisis de enriquecimiento funcional (GSEA)
+
+Figuras completas del análisis GSEA con WebGestalt.
+
+```{r fig-gsea-barchart, echo=FALSE, fig.cap="A14: Top términos GO enriquecidos por GSEA (|NES| > 1.5).", out.width="70%", fig.align="center", warning=FALSE, message=FALSE}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/GSEA/Project_MG_vs_GC/MG_vs_GC_barchart.png")
+```
+
+```{r fig-gsea-volcano, echo=FALSE, fig.cap="A15: Volcano plot del análisis GSEA.", out.width="60%", fig.align="center", warning=FALSE, message=FALSE}
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/GSEA/Project_MG_vs_GC/MG_vs_GC_enrichment__plot.png")
+```
+
+```{r fig-gsea-dag, echo=FALSE, fig.cap="A16: DAG (Directed Acyclic Graph) de términos GO enriquecidos.", out.width="90%", fig.align="center", warning=FALSE, message=FALSE }
+knitr::include_graphics("/export/space3/users/zyanyava/2026-2/Transcriptomica/RNA_seq_Project/results/GSEA/Project_MG_vs_GC/MG_vs_GC_DAG.png")
+```
